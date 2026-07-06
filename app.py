@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from datetime import datetime
 import re
 
 app = FastAPI()
 
+
 class InvoiceRequest(BaseModel):
     text: str
+
 
 class InvoiceResponse(BaseModel):
     vendor: str
@@ -14,49 +15,74 @@ class InvoiceResponse(BaseModel):
     currency: str
     date: str
 
-import re
 
 @app.post("/extract", response_model=InvoiceResponse)
 def extract(req: InvoiceRequest):
 
-    text = req.text
+    text = req.text.strip()
 
-    if not text.strip():
+    if not text:
         return InvoiceResponse(
             vendor="",
-            amount=0,
+            amount=0.0,
             currency="USD",
             date=""
         )
 
-    # -------- Vendor --------
+    # ---------------- Vendor ----------------
     vendor = ""
 
-    # Look for Acme-XXXX pattern anywhere
-    m = re.search(r"(Acme-[A-Za-z0-9]+.*)", text, re.IGNORECASE)
+    vendor_patterns = [
+        r"Vendor\s*:\s*([^\n]+)",
+        r"From\s*:\s*([^\n]+)",
+        r"Issued\s+by\s*:\s*([^\n]+)",
+        r"(Acme-[^\n,]+)",
+    ]
+
+    for pattern in vendor_patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            vendor = m.group(1).strip()
+            break
+
+    # ---------------- Currency ----------------
+    currency = ""
+
+    m = re.search(r"\b(USD|EUR|GBP)\b", text, re.IGNORECASE)
+
     if m:
-        vendor = m.group(1).split("\n")[0].strip()
+        currency = m.group(1).upper()
 
-    # -------- Currency --------
-    cur = re.search(r"\b(USD|EUR|GBP)\b", text)
-    currency = cur.group(1).upper() if cur else ""
-
-    # -------- Amount --------
-    amounts = re.findall(r"\d+(?:\.\d+)?", text)
-
+    # ---------------- Amount ----------------
     amount = 0.0
 
-    if amounts:
-        amount = max(float(x) for x in amounts)
+    amount_patterns = [
 
-    # -------- Date --------
-    d = re.search(r"20\d{2}-\d{2}-\d{2}", text)
+        r"Total\s*Due\s*[:\-]?\s*(?:USD|EUR|GBP)?\s*\$?([0-9]+(?:\.[0-9]+)?)",
+        r"Amount\s*Due\s*[:\-]?\s*(?:USD|EUR|GBP)?\s*\$?([0-9]+(?:\.[0-9]+)?)",
+        r"Balance\s*Due\s*[:\-]?\s*(?:USD|EUR|GBP)?\s*\$?([0-9]+(?:\.[0-9]+)?)",
+        r"Grand\s*Total\s*[:\-]?\s*(?:USD|EUR|GBP)?\s*\$?([0-9]+(?:\.[0-9]+)?)",
+        r"Total\s*[:\-]?\s*(?:USD|EUR|GBP)?\s*\$?([0-9]+(?:\.[0-9]+)?)",
+        r"(?:USD|EUR|GBP)\s*\$?([0-9]+(?:\.[0-9]+)?)",
+    ]
 
-    date = d.group(0) if d else ""
+    for pattern in amount_patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            amount = float(m.group(1))
+            break
+
+    # ---------------- Date ----------------
+    date = ""
+
+    m = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text)
+
+    if m:
+        date = m.group(0)
 
     return InvoiceResponse(
         vendor=vendor,
         amount=amount,
         currency=currency,
-        date=date
+        date=date,
     )
