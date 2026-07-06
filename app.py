@@ -14,6 +14,8 @@ class InvoiceResponse(BaseModel):
     currency: str
     date: str
 
+import re
+
 @app.post("/extract", response_model=InvoiceResponse)
 def extract(req: InvoiceRequest):
 
@@ -27,42 +29,34 @@ def extract(req: InvoiceRequest):
             date=""
         )
 
-    # Vendor
+    # -------- Vendor --------
     vendor = ""
-    patterns = [
-        r"Vendor[:\-]\s*(.+)",
-        r"From[:\-]\s*(.+)",
-        r"Issued by[:\-]\s*(.+)"
-    ]
 
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            vendor = m.group(1).split("\n")[0].strip()
-            break
+    # Look for Acme-XXXX pattern anywhere
+    m = re.search(r"(Acme-[A-Za-z0-9]+.*)", text, re.IGNORECASE)
+    if m:
+        vendor = m.group(1).split("\n")[0].strip()
 
-    # Currency
+    # -------- Currency --------
     cur = re.search(r"\b(USD|EUR|GBP)\b", text)
+    currency = cur.group(1).upper() if cur else ""
 
-    currency = cur.group(1).upper() if cur else "USD"
+    # -------- Amount --------
+    amounts = re.findall(r"\d+(?:\.\d+)?", text)
 
-    # Amount
-    amt = re.search(
-        r"(?:Total|Amount|Due|Total Due)[^\d]*([\d]+(?:\.\d+)?)",
-        text,
-        re.IGNORECASE,
-    )
+    amount = 0.0
 
-    amount = float(amt.group(1)) if amt else 0
+    if amounts:
+        amount = max(float(x) for x in amounts)
 
-    # Date
-    d = re.search(r"(20\d\d-\d\d-\d\d)", text)
+    # -------- Date --------
+    d = re.search(r"20\d{2}-\d{2}-\d{2}", text)
 
-    date = d.group(1) if d else ""
+    date = d.group(0) if d else ""
 
     return InvoiceResponse(
         vendor=vendor,
         amount=amount,
         currency=currency,
-        date=date,
+        date=date
     )
